@@ -489,6 +489,17 @@ cc_library(
 )
 
 cc_library(
+    name = "pass_registry_utils",
+    hdrs = ["transforms/pass_registry_utils.h"],
+    compatible_with = get_compatible_with_portable(),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":pass",
+        "@llvm-project//mlir:Pass",
+    ],
+)
+
+cc_library(
     name = "tensorflow_lite",
     srcs = [
         "ir/tfl_canonicalize.inc",
@@ -496,7 +507,9 @@ cc_library(
     hdrs = [
         "ir/tfl_ops.h",
         "transforms/optimize_pass.h",
+        "transforms/pass_registry_utils.h",
         "transforms/passes.h",
+        "transforms/unfreeze_global_constants.h",
         "utils/attribute_utils.h",
         "utils/utils.h",
     ],
@@ -506,6 +519,7 @@ cc_library(
         ":cost_estimators",
         ":optimize_pass_options",
         ":pass",
+        ":pass_registry_utils",
         ":size_utils",
         ":tensorflow_lite_canonicalize_inc_gen",
         ":tensorflow_lite_op_enums_inc_gen",
@@ -514,6 +528,7 @@ cc_library(
         ":tensorflow_lite_ops_inc_gen",
         ":tensorflow_lite_optimize",
         ":tensorflow_lite_passes_inc_gen",
+        ":tensorflow_lite_tf_unfreeze_global_tensors",
         "//tensorflow/compiler/mlir/lite/quantization/ir:QuantOps",
         "//tensorflow/compiler/mlir/lite/schema:schema_fbs",
         "//tensorflow/compiler/mlir/quantization/common/quantization_lib",
@@ -1039,25 +1054,16 @@ cc_library(
         "transforms/unfreeze_global_constants.cc",
     ],
     hdrs = [
-        "transforms/passes.h",
+        "transforms/unfreeze_global_constants.h",
     ],
     deps = [
         ":pass",
-        ":tensorflow_lite",
-        ":tensorflow_lite_passes_inc_gen",
-        "//tensorflow/compiler/mlir/lite/stablehlo:optimize_layout",
-        "//tensorflow/compiler/mlir/lite/stablehlo:prepare_hlo",
-        "//tensorflow/compiler/mlir/lite/stablehlo:tfl_legalize_chlo",
-        "//tensorflow/compiler/mlir/lite/stablehlo:tfl_legalize_hlo",
-        "//tensorflow/compiler/mlir/quantization/common/quantization_lib:quantization_config",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/tensorflow:tensorflow_ops",
         "//tensorflow/compiler/mlir/tensorflow:tensorflow_types",
-        "@com_google_absl//absl/container:flat_hash_set",
         "@llvm-project//llvm:Support",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Support",
     ],
 )
@@ -1577,6 +1583,7 @@ cc_library(
         ":common",
         ":fake_quant_utils",
         ":pass",
+        ":pass_registry_utils",
         ":tensorflow_lite_d2s",  # buildcleaner: keep
         ":tensorflow_lite_legalize_tf",  # buildcleaner: keep
         ":tensorflow_lite_optimize",  # buildcleaner: keep
