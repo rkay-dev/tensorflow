@@ -8,6 +8,7 @@ package(
 xla_cc_binary(
     name = "mlir_fusions_opt",
     srcs = ["mlir_fusions_opt.cc"],
+    tags = ["gpu"],
     visibility = ["//xla/service/gpu/fusions:__subpackages__"],
     deps = [
         "//xla/mlir_hlo",
@@ -40,6 +41,7 @@ cc_library(
     testonly = 1,
     srcs = ["test_lib.cc"],
     hdrs = ["test_lib.h"],
+    tags = ["gpu"],
     deps = [
         "//xla:status_macros",
         "//xla/hlo/ir:hlo",
@@ -74,6 +76,7 @@ xla_cc_binary(
     name = "fusion_to_mlir",
     testonly = 1,
     srcs = ["fusion_to_mlir.cc"],
+    tags = ["gpu"],
     visibility = ["//xla/service/gpu/fusions:__subpackages__"],
     deps = [
         ":test_lib",
@@ -89,6 +92,7 @@ xla_cc_binary(
     name = "test_correctness",
     testonly = 1,
     srcs = ["test_correctness.cc"],
+    tags = ["gpu"],
     visibility = ["//xla/service/gpu/fusions:__subpackages__"],
     deps = [
         ":test_lib",

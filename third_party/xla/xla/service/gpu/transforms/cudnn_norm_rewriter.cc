@@ -50,12 +50,6 @@ limitations under the License.
 #include "tsl/platform/statusor.h"
 #include "tsl/protobuf/dnn.pb.h"
 
-#if GOOGLE_CUDA
-#include "third_party/gpus/cuda/include/cuda.h"  // IWYU pragma: keep
-#include "third_party/gpus/cudnn/cudnn.h"        // IWYU pragma: keep
-#include "third_party/gpus/cudnn/cudnn_version.h"
-#endif
-
 namespace xla {
 namespace gpu {
 
