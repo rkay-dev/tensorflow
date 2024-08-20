@@ -15,25 +15,12 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_TOOLS_VERSIONING_RUNTIME_VERSION_H_
 #define TENSORFLOW_LITE_TOOLS_VERSIONING_RUNTIME_VERSION_H_
 
-#include <string>
-
-#include "flatbuffers/flatbuffers.h"  // from @flatbuffers
-#include "tensorflow/compiler/mlir/lite/schema/mutable/schema_generated.h"
+#include "tensorflow/compiler/mlir/lite/tools/versioning/runtime_version.h"
 
 namespace tflite {
-// Update minimum runtime version of the given TFL flatbuffer model.
-void UpdateMinimumRuntimeVersionForModel(uint8_t* model_buffer_pointer);
-
-// Find the minimum runtime version of a given op version. Return an empty
-// string the version is not registered.
-std::string FindMinimumRuntimeVersionForOp(tflite::BuiltinOperator op_code,
-                                           int op_version);
-
-// Returns true if the first version string precedes the second.
-// For example, '1.9' should precede '1.14', also '1.14' should precede
-// '1.14.1'. If two version string is equal, then false will be returned.
-bool CompareRuntimeVersion(const std::string&, const std::string&);
-
+using tflite_migration::CompareRuntimeVersion;
+using tflite_migration::FindMinimumRuntimeVersionForOp;
+using tflite_migration::UpdateMinimumRuntimeVersionForModel;
 }  // namespace tflite
 
 #endif  // TENSORFLOW_LITE_TOOLS_VERSIONING_RUNTIME_VERSION_H_

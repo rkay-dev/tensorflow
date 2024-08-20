@@ -14,7 +14,6 @@ cc_library(
     name = "versioning",
     srcs = [
         "op_version.cc",
-        "runtime_version.cc",
     ],
     hdrs = [
         "op_version.h",
@@ -25,14 +24,14 @@ cc_library(
         ":op_signature",
         "//tensorflow/compiler/mlir/lite/schema:schema_fbs",
         "//tensorflow/compiler/mlir/lite/schema:schema_fbs_with_mutable",
+        "//tensorflow/compiler/mlir/lite/schema:schema_utils",
+        "//tensorflow/compiler/mlir/lite/tools/versioning",
+        "//tensorflow/compiler/mlir/lite/tools/versioning:op_signature",
         "//tensorflow/core:tflite_portable_logging",
-        "//tensorflow/lite:builtin_op_data",
         "//tensorflow/lite:minimal_logging",
         "//tensorflow/lite/core/c:c_api_types",
         "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/kernels/internal:compatibility",
-        "//tensorflow/lite/schema:schema_utils",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
     ],
@@ -66,6 +65,7 @@ cc_library(
     ],
     compatible_with = get_compatible_with_portable(),
     deps = [
+        "//tensorflow/compiler/mlir/lite/tools/versioning:op_signature",
         "//tensorflow/lite:stderr_reporter",
         "//tensorflow/lite/core/api",
         "//tensorflow/lite/core/c:c_api_types",
@@ -88,9 +88,9 @@ tf_cc_test(
     ],
     deps = [
         ":op_signature",
-        "//tensorflow/core/platform:resource_loader",
+        "//tensorflow/compiler/mlir/lite/schema:schema_fbs",
         "//tensorflow/lite:builtin_ops",
-        "//tensorflow/lite/core:model_builder",
+        "//tensorflow/lite/core/c:common",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -106,9 +106,10 @@ cc_library(
     compatible_with = get_compatible_with_portable(),
     deps = [
         ":op_signature",
+        "//tensorflow/compiler/mlir/lite/core/c:c_api_types",
+        "//tensorflow/compiler/mlir/lite/tools/versioning:op_signature",
         "//tensorflow/lite:builtin_op_data",
         "//tensorflow/lite:builtin_ops",
-        "//tensorflow/lite/c:c_api_types",
         "//tensorflow/lite/core/c:common",
         "//tensorflow/lite/schema:schema_fbs",
         "@com_google_absl//absl/status",
