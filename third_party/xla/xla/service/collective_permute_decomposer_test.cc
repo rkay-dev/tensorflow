@@ -19,6 +19,7 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/strings/string_view.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
 #include "xla/hlo/ir/hlo_module.h"
@@ -28,10 +29,12 @@ limitations under the License.
 #include "xla/service/gpu/backend_configs.pb.h"
 #include "xla/service/hlo_parser.h"
 #include "xla/tests/hlo_test_base.h"
+#include "tsl/platform/statusor.h"
 
 namespace xla {
 namespace {
 
+using ::testing::ElementsAre;
 using ::testing::HasSubstr;
 namespace op = xla::testing::opcode_matchers;
 using CollectivePermuteDecomposerTest = HloTestBase;
@@ -314,6 +317,8 @@ TEST_F(CollectivePermuteDecomposerTest, ForwardPipeline2) {
   HloInstruction* send_done1 = FindInstruction(module.get(), "send-done.1");
   EXPECT_THAT(send_done1->ToString(),
               HasSubstr("_xla_send_recv_pipeline=\"1\""));
+
+  EXPECT_THAT(recv1->control_predecessors(), ElementsAre(send));
 }
 
 TEST_F(CollectivePermuteDecomposerTest, ForwardPipelineWithMatmul) {
@@ -422,6 +427,10 @@ TEST_F(CollectivePermuteDecomposerTest, ForwardPipelineWithMatmul) {
       hlo_query::IsBeforeInComputation(while_body, "send-done", "send-done.1"));
   EXPECT_TRUE(
       hlo_query::IsBeforeInComputation(while_body, "recv-done", "send-done.1"));
+
+  EXPECT_THAT(recv_fwd->control_predecessors(), ElementsAre(send_bwd));
+  EXPECT_TRUE(hlo_query::IsBeforeInComputation(while_body, "send", "recv.1"));
+
   EXPECT_TRUE(hlo_query::IsBeforeInComputation(while_body, "recv-done.1",
                                                "send-done.1"));
   auto recv_done_fwd = FindInstruction(transformed_module, "recv-done");
@@ -506,6 +515,8 @@ TEST_F(CollectivePermuteDecomposerTest, BackwardPipeline2) {
   EXPECT_THAT(send1->ToString(),
               HasSubstr("_xla_send_recv_source_target_pairs={{0,3}}"));
   EXPECT_THAT(send1->ToString(), HasSubstr("_xla_send_recv_pipeline=\"0\""));
+
+  EXPECT_THAT(recv1->control_predecessors(), ElementsAre(send));
 }
 
 }  // namespace
