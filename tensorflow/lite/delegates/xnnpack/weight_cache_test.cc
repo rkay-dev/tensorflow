@@ -36,6 +36,7 @@ limitations under the License.
 #include "xnnpack.h"  // from @XNNPACK
 #include "flatbuffers/verifier.h"  // from @flatbuffers
 #include "tensorflow/lite/c/common.h"
+#include "tensorflow/lite/delegates/xnnpack/file_util.h"
 #include "tensorflow/lite/delegates/xnnpack/weight_cache_schema_generated.h"
 #include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
 
@@ -184,6 +185,23 @@ TEST(MMapHandleTest, MoveConstructs) {
   EXPECT_THAT(handle2, ElementsAreArray(payload));
 }
 
+TEST(MMapHandleTest, Remap) {
+  const std::string payload = "This is some data in the file.";
+
+  TempFileDesc tmp_file;
+  ASSERT_TRUE(tmp_file.IsOpen());
+  ASSERT_EQ(write(tmp_file.GetFd(), payload.c_str(), size(payload)),
+            size(payload));
+  tmp_file.Close();
+
+  MMapHandle handle;
+  ASSERT_TRUE(handle.Map(tmp_file.GetCPath()));
+
+  const bool was_resized = handle.Resize(payload.size() * 2);
+  EXPECT_TRUE(was_resized);
+  EXPECT_EQ(handle.size(), payload.size() * 2);
+}
+
 TEST(WeightCacheBuilderTest, ReserveAppendWriteWorks) {
   using std::size;
 
@@ -193,6 +211,7 @@ TEST(WeightCacheBuilderTest, ReserveAppendWriteWorks) {
   WeightCacheBuilder builder;
   const std::string cache_path = testing::TempDir() + "/cache";
   ASSERT_TRUE(builder.Start(cache_path.c_str()));
+  ASSERT_TRUE(builder.StartBuildStep());
 
   const size_t payload_size = size(payload);
   void* buffer = builder.Reserve(payload_size);
@@ -201,9 +220,8 @@ TEST(WeightCacheBuilderTest, ReserveAppendWriteWorks) {
 
   EXPECT_EQ(loc.size, payload_size);
   EXPECT_GE(builder.capacity(), payload_size);
-  EXPECT_TRUE(builder.ShouldFinalize());
 
-  ASSERT_TRUE(builder.Finalize());
+  ASSERT_TRUE(builder.StopBuildStep());
 
   MMapHandle handle;
   ASSERT_TRUE(handle.Map(cache_path.c_str()));
@@ -258,14 +276,14 @@ TEST(WeightCacheBuilderTest, AppendWithoutReserveWriteWorks) {
   const std::string cache_path = testing::TempDir() + "/cache";
   WeightCacheBuilder builder;
   ASSERT_TRUE(builder.Start(cache_path.c_str()));
+  ASSERT_TRUE(builder.StartBuildStep());
 
   const size_t payload_size = size(payload);
   auto loc = builder.Append(dummy_id, payload.c_str(), payload_size);
 
   EXPECT_EQ(loc.size, payload_size);
-  EXPECT_TRUE(builder.ShouldFinalize());
 
-  ASSERT_TRUE(builder.Finalize());
+  ASSERT_TRUE(builder.StopBuildStep());
 
   MMapHandle handle;
   ASSERT_TRUE(handle.Map(cache_path.c_str()));
@@ -338,6 +356,122 @@ TEST(WeightCacheBuilderTest, InMemoryCacheTriggeredByCorrectPrefix) {
     const FileDescriptor file_fd(open(kInMemoryCachePath, O_RDONLY));
     EXPECT_FALSE(file_fd.IsValid());
     EXPECT_EQ(errno, ENOENT);
+  }
+}
+
+TEST(WeightCacheBuilderTest, MultipleStepBuild) {
+  using std::size;
+
+  const std::string payload1 = "This is some data in the file.";
+  const PackIdentifier dummy_id1{1, 2, 3};
+  const std::string payload2 = "Other data in the file.";
+  const PackIdentifier dummy_id2{2, 3, 4};
+  TempFileDesc tmp_file{TempFileDesc::kAutoClose};
+
+  WeightCacheBuilder builder;
+  ASSERT_TRUE(builder.Start(tmp_file.GetCPath()));
+  ASSERT_TRUE(builder.StartBuildStep());
+
+  {
+    const size_t payload_size = size(payload1);
+    void* buffer = builder.Reserve(payload_size);
+    std::memcpy(buffer, payload1.c_str(), payload_size);
+    const auto loc = builder.Append(dummy_id1, buffer, payload_size);
+    EXPECT_EQ(loc.size, payload_size);
+    EXPECT_GE(builder.capacity(), payload_size);
+  }
+
+  ASSERT_TRUE(builder.StopBuildStep());
+
+  MMapHandle handle;
+  ASSERT_TRUE(handle.Map(tmp_file.GetCPath()));
+
+  ASSERT_TRUE(builder.StartBuildStep());
+  {
+    const size_t payload_size = size(payload2);
+    void* buffer = builder.Reserve(payload_size);
+    std::memcpy(buffer, payload2.c_str(), payload_size);
+    const auto loc = builder.Append(dummy_id2, buffer, payload_size);
+    EXPECT_EQ(loc.size, payload_size);
+    EXPECT_GE(builder.capacity(), payload_size);
+  }
+
+  ASSERT_TRUE(builder.StopBuildStep());
+
+  ASSERT_TRUE(handle.Map(tmp_file.GetCPath()));
+
+  const XNNPackCacheHeader& header =
+      *reinterpret_cast<const XNNPackCacheHeader*>(handle.data());
+
+  ASSERT_EQ(header.version, XNNPackCacheHeader::kVersion);
+  ASSERT_NE(header.buffer_list_offset, 0);
+  ASSERT_NE(header.buffer_list_size, 0);
+  ASSERT_LE(header.buffer_list_offset + header.buffer_list_size, handle.size());
+
+  const cache::schema::BufferList* const packed_weights =
+      cache::schema::GetBufferList(handle.data() + header.buffer_list_offset);
+
+  ASSERT_NE(packed_weights, nullptr);
+  ASSERT_NE(packed_weights->buffers(), nullptr);
+  ASSERT_EQ(packed_weights->buffers()->size(), 2);
+  // Payload 1.
+  ASSERT_NE(packed_weights->buffers()->Get(0), nullptr);
+  ASSERT_EQ(packed_weights->buffers()->Get(0)->size(), size(payload1));
+  ASSERT_EQ(packed_weights->buffers()->Get(0)->packing_algorithm_id(),
+            dummy_id1.pack_algorithm_id);
+  ASSERT_EQ(packed_weights->buffers()->Get(0)->weights_id(),
+            dummy_id1.weights_id);
+  ASSERT_EQ(packed_weights->buffers()->Get(0)->bias_id(), dummy_id1.bias_id);
+
+  // Payload 2.
+  ASSERT_NE(packed_weights->buffers()->Get(1), nullptr);
+  ASSERT_EQ(packed_weights->buffers()->Get(1)->size(), size(payload2));
+  ASSERT_EQ(packed_weights->buffers()->Get(1)->packing_algorithm_id(),
+            dummy_id2.pack_algorithm_id);
+  ASSERT_EQ(packed_weights->buffers()->Get(1)->weights_id(),
+            dummy_id2.weights_id);
+  ASSERT_EQ(packed_weights->buffers()->Get(1)->bias_id(), dummy_id2.bias_id);
+
+  flatbuffers::Verifier verifier(handle.data() + header.buffer_list_offset,
+                                 header.buffer_list_size);
+  EXPECT_TRUE(cache::schema::VerifyBufferListBuffer(verifier));
+
+  // Payload 1.
+  ASSERT_LE(packed_weights->base_offset() +
+                packed_weights->buffers()->Get(0)->offset(),
+            size(handle));
+  ASSERT_LE(packed_weights->base_offset() +
+                packed_weights->buffers()->Get(0)->offset() +
+                packed_weights->buffers()->Get(0)->size(),
+            size(handle));
+
+  // Payload 2.
+  ASSERT_LE(packed_weights->base_offset() +
+                packed_weights->buffers()->Get(1)->offset(),
+            size(handle));
+  ASSERT_LE(packed_weights->base_offset() +
+                packed_weights->buffers()->Get(1)->offset() +
+                packed_weights->buffers()->Get(1)->size(),
+            size(handle));
+
+  // Payload 1.
+  {
+    std::tuple<const char*, size_t> cache_data(
+        reinterpret_cast<const char*>(
+            handle.data() + packed_weights->base_offset() +
+            packed_weights->buffers()->Get(0)->offset()),
+        packed_weights->buffers()->Get(0)->size());
+    EXPECT_THAT(cache_data, ElementsAreArray(payload1));
+  }
+
+  // Payload 1.
+  {
+    std::tuple<const char*, size_t> cache_data(
+        reinterpret_cast<const char*>(
+            handle.data() + packed_weights->base_offset() +
+            packed_weights->buffers()->Get(1)->offset()),
+        packed_weights->buffers()->Get(1)->size());
+    EXPECT_THAT(cache_data, ElementsAreArray(payload2));
   }
 }
 
@@ -447,12 +581,12 @@ struct BuildMMapWeightCacheProviderTest : testing::Test {
     ctx.FinalizeTensors();
     cache_provider.MapTensorIdentifiers(ctx.tensors.data(), ctx.tensors.size(),
                                         ctx.tensor_buffer_identifiers);
-    const std::string cache_path = testing::TempDir() + "/cache";
-    ASSERT_TRUE(cache_provider.StartBuild(cache_path.c_str()));
+    ASSERT_TRUE(cache_provider.StartBuild(tmp_file.GetCPath()));
   }
 
   FakeContext ctx;
   MMapWeightCacheProvider cache_provider;
+  TempFileDesc tmp_file{TempFileDesc::kAutoClose};
 };
 
 TEST_F(BuildMMapWeightCacheProviderTest, LookUpFailsIfKeyDoesntMatch) {
@@ -462,8 +596,10 @@ TEST_F(BuildMMapWeightCacheProviderTest, LookUpFailsIfKeyDoesntMatch) {
 
 TEST_F(BuildMMapWeightCacheProviderTest, LookUpSucceeds) {
   enum { kWeightIndex, kBiasIndex };
+  ASSERT_TRUE(cache_provider.StartBuildStep());
   const auto pack_id = ctx.PackTensors(&cache_provider.GetCacheProvider(),
                                        kAlgoSeed1, kWeightIndex, kBiasIndex);
+  EXPECT_TRUE(cache_provider.StopBuildStep());
   const xnn_weights_cache_look_up_key look_up_key =
       ctx.LookUpKey(kAlgoSeed1, kWeightIndex, kBiasIndex);
 
@@ -474,10 +610,12 @@ TEST_F(BuildMMapWeightCacheProviderTest, LookUpSucceeds) {
 TEST_F(BuildMMapWeightCacheProviderTest,
        DifferentAlgoSeedsSameTensorsDontConflict) {
   enum { kWeightIndex, kBiasIndex };
+  ASSERT_TRUE(cache_provider.StartBuildStep());
   const auto pack_id_1 = ctx.PackTensors(&cache_provider.GetCacheProvider(),
                                          kAlgoSeed1, kWeightIndex, kBiasIndex);
   const auto pack_id_2 = ctx.PackTensors(&cache_provider.GetCacheProvider(),
                                          kAlgoSeed2, kWeightIndex, kBiasIndex);
+  EXPECT_TRUE(cache_provider.StopBuildStep());
 
   const xnn_weights_cache_look_up_key look_up_key_1 =
       ctx.LookUpKey(kAlgoSeed1, kWeightIndex, kBiasIndex);
@@ -495,6 +633,7 @@ TEST_F(BuildMMapWeightCacheProviderTest,
 TEST_F(BuildMMapWeightCacheProviderTest,
        SameAlgoSeedDifferentTensorsDontConflict) {
   enum { kWeightIndex1, kWeightIndex2, kBiasIndex1, kBiasIndex2 };
+  ASSERT_TRUE(cache_provider.StartBuildStep());
   const auto pack_id_1 =
       ctx.PackTensors(&cache_provider.GetCacheProvider(), kAlgoSeed1,
                       kWeightIndex1, kBiasIndex1);
@@ -507,6 +646,7 @@ TEST_F(BuildMMapWeightCacheProviderTest,
   const auto pack_id_4 =
       ctx.PackTensors(&cache_provider.GetCacheProvider(), kAlgoSeed1,
                       kWeightIndex2, kBiasIndex2);
+  EXPECT_TRUE(cache_provider.StopBuildStep());
 
   const xnn_weights_cache_look_up_key look_up_key_1 =
       ctx.LookUpKey(kAlgoSeed1, kWeightIndex1, kBiasIndex1);
@@ -540,10 +680,9 @@ TEST_F(BuildMMapWeightCacheProviderTest,
             cache_provider.LookUp(&look_up_key_4));
 }
 
-TEST_F(BuildMMapWeightCacheProviderTest, FinalizeWorks) {
+TEST_F(BuildMMapWeightCacheProviderTest, BuildStepSequenceWorks) {
   enum { kWeightIndex1, kBiasIndex, kWeightIndex2 };
-  TempFileDesc tmp_file(TempFileDesc::kAutoClose);
-  ASSERT_TRUE(cache_provider.StartBuild(tmp_file.GetCPath()));
+  ASSERT_TRUE(cache_provider.StartBuildStep());
 
   ctx.PackTensors(&cache_provider.GetCacheProvider(), kAlgoSeed1, kWeightIndex1,
                   kBiasIndex);
@@ -552,9 +691,10 @@ TEST_F(BuildMMapWeightCacheProviderTest, FinalizeWorks) {
 
   EXPECT_TRUE(cache_provider.IsActive());
   EXPECT_TRUE(cache_provider.IsBuilding());
-  ASSERT_TRUE(cache_provider.Finalize());
+  ASSERT_TRUE(cache_provider.StopBuildStep());
 
-  ASSERT_TRUE(cache_provider.IsFinalized());
+  ASSERT_TRUE(cache_provider.IsActive());
+  EXPECT_FALSE(cache_provider.IsBuilding());
 }
 
 struct LoadMMapWeightCacheProviderTest : BuildMMapWeightCacheProviderTest {
@@ -562,15 +702,14 @@ struct LoadMMapWeightCacheProviderTest : BuildMMapWeightCacheProviderTest {
 
   void SetUp() override {
     BuildMMapWeightCacheProviderTest::SetUp();
-    ASSERT_TRUE(cache_provider.StartBuild(tmp_file.GetCPath()));
+    ASSERT_TRUE(cache_provider.StartBuildStep());
 
     pack_id_1 = ctx.PackTensors(&cache_provider.GetCacheProvider(), kAlgoSeed1,
                                 kWeightIndex1, kBiasIndex);
     pack_id_2 = ctx.PackTensors(&cache_provider.GetCacheProvider(), kAlgoSeed2,
                                 kWeightIndex2);
 
-    ASSERT_TRUE(cache_provider.Finalize());
-    ASSERT_TRUE(cache_provider.IsFinalized());
+    ASSERT_TRUE(cache_provider.StopBuildStep());
   }
 
   xnn_weights_cache_look_up_key LookUpKey1() const {
@@ -581,7 +720,6 @@ struct LoadMMapWeightCacheProviderTest : BuildMMapWeightCacheProviderTest {
     return ctx.LookUpKey(kAlgoSeed2, kWeightIndex2);
   }
 
-  TempFileDesc tmp_file;
   PackIdentifier pack_id_1;
   PackIdentifier pack_id_2;
 };
@@ -669,6 +807,7 @@ TEST(MMapWeightCacheProviderTest, XnnpackCApiJourney) {
 
     MMapWeightCacheProvider cache_provider;
     ASSERT_TRUE(cache_provider.StartBuild(temp_fd.GetCPath()));
+    ASSERT_TRUE(cache_provider.StartBuildStep());
 
     xnn_weights_cache_t cache = &cache_provider.GetCacheProvider();
     cache_provider.MapTensorIdentifiers(tensors, size(tensors),
@@ -694,8 +833,12 @@ TEST(MMapWeightCacheProviderTest, XnnpackCApiJourney) {
         cache, &look_up_key_1, reserved_ptr, bytes(packed_data_ref_1));
     EXPECT_EQ(build_offset_1, build_offset_redundant);
 
+    ASSERT_TRUE(cache_provider.StopBuildStep());
+
     // Lookup newly packed tensor.
     ASSERT_EQ(cache->look_up(cache, &look_up_key_1), build_offset_1);
+
+    ASSERT_TRUE(cache_provider.StartBuildStep());
 
     // Add a tensor without reserving before.
     const xnn_weights_cache_look_up_key look_up_key_2{
@@ -707,7 +850,7 @@ TEST(MMapWeightCacheProviderTest, XnnpackCApiJourney) {
         bytes(packed_data_ref_2));
 
     // Save the cache to disk and reload.
-    ASSERT_TRUE(cache_provider.Finalize());
+    ASSERT_TRUE(cache_provider.StopBuildStep());
 
     ASSERT_TRUE(cache->is_finalized(cache));
 
