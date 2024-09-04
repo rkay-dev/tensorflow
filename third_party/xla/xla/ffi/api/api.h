@@ -227,6 +227,10 @@ class Ffi {
         XLA_FFI_Handler_Bundle{nullptr, nullptr, nullptr, execute}, traits);
   }
 
+  static inline XLA_FFI_Error* RegisterTypeId(const XLA_FFI_Api* api,
+                                              std::string_view name,
+                                              XLA_FFI_TypeId* type_id);
+
  protected:
   template <typename... Args>
   static std::string StrCat(Args... args);
@@ -262,6 +266,17 @@ XLA_FFI_Error* Ffi::RegisterStaticHandler(const XLA_FFI_Api* api,
   args.bundle = bundle;
   args.traits = traits;
   return api->XLA_FFI_Handler_Register(&args);
+}
+
+XLA_FFI_Error* Ffi::RegisterTypeId(const XLA_FFI_Api* api,
+                                   std::string_view name,
+                                   XLA_FFI_TypeId* type_id) {
+  XLA_FFI_TypeId_Register_Args args;
+  args.struct_size = XLA_FFI_TypeId_Register_Args_STRUCT_SIZE;
+  args.extension_start = nullptr;
+  args.name = XLA_FFI_ByteSpan{name.data(), name.size()};
+  args.type_id = type_id;
+  return api->XLA_FFI_TypeId_Register(&args);
 }
 
 template <typename... Args>

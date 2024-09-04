@@ -283,6 +283,7 @@ def register_custom_call_target(
     platform: str = ...,
     api_version: int = ...,
     traits: CustomCallTargetTraits = ...,
+    custom_type_ids: Any = ...,
 ) -> None: ...
 
 def register_custom_call_handler(

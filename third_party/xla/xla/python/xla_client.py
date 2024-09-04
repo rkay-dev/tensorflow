@@ -594,7 +594,7 @@ class CustomCallTargetTraits(enum.IntFlag):
   COMMAND_BUFFER_COMPATIBLE = 1
 
 
-class CustomCallHandler(Protocol):
+class CustomCallHandler(Protocol):  # pylint: disable=missing-class-docstring
 
   def __call__(
       self,
@@ -604,6 +604,7 @@ class CustomCallHandler(Protocol):
       /,
       api_version: int = ...,
       traits: CustomCallTargetTraits = ...,
+      custom_type_ids: Any = ...,
   ) -> None:
     ...
 
@@ -611,7 +612,7 @@ class CustomCallHandler(Protocol):
 _custom_callback_handler: dict[str, CustomCallHandler] = {}
 # Key is xla_platform_name, value is (function_name, function, api_version)
 _custom_callback: dict[
-    str, list[tuple[str, Any, int, CustomCallTargetTraits]]
+    str, list[tuple[str, Any, int, CustomCallTargetTraits, Any]]
 ] = {}
 _custom_callback_lock = threading.Lock()
 
@@ -622,6 +623,7 @@ def register_custom_call_target(
     platform: str = 'cpu',
     api_version: int = 0,
     traits: CustomCallTargetTraits = CustomCallTargetTraits.DEFAULT,
+    custom_type_ids: Any = None,
 ) -> None:
   """Registers a custom call target.
 
@@ -632,6 +634,9 @@ def register_custom_call_target(
     api_version: the XLA FFI version to use. Supported versions are: 0 for the
       untyped FFI and 1 for the typed FFI.
     traits: custom call traits corresponding to XLA FFI handler traits.
+    custom_type_ids: a dictionary where the keys are strings specifying the
+      names of any custom types required by the custom call, and the values are
+      PyCapsule objects holding pointers to the custom type id fields.
   """
   # To support AMD GPUs, we need to have xla_platform_names["gpu"] == "ROCM"
   # Since that is hardcoded to CUDA, we are using the following as workaround.
@@ -639,11 +644,11 @@ def register_custom_call_target(
   with _custom_callback_lock:
     if xla_platform_name in _custom_callback_handler:
       _custom_callback_handler[xla_platform_name](
-          name, fn, xla_platform_name, api_version, traits
+          name, fn, xla_platform_name, api_version, traits, custom_type_ids
       )
     else:
       _custom_callback.setdefault(xla_platform_name, []).append(
-          (name, fn, api_version, traits)
+          (name, fn, api_version, traits, custom_type_ids)
       )
 
 
@@ -669,8 +674,11 @@ def register_custom_call_handler(
       return
     _custom_callback_handler[xla_platform_name] = handler
     if xla_platform_name in _custom_callback:
-      for name, fn, api_version, traits in _custom_callback[xla_platform_name]:
-        handler(name, fn, xla_platform_name, api_version, traits)
+      callback = _custom_callback[xla_platform_name]
+      for name, fn, api_version, traits, custom_type_ids in callback:
+        handler(
+            name, fn, xla_platform_name, api_version, traits, custom_type_ids
+        )
       del _custom_callback[xla_platform_name]
 
 

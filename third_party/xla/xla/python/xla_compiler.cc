@@ -304,11 +304,9 @@ absl::StatusOr<HloSharding> IotaTileHelper(
 //
 // See XLA_FFI_ExecutionStage documentation for more details about the
 // custom execution stages.
-absl::Status PyRegisterCustomCallTarget(const std::string& fn_name,
-                                        nb::object fn,
-                                        const std::string& platform,
-                                        int api_version,
-                                        XLA_FFI_Handler_Traits traits) {
+absl::Status PyRegisterCustomCallTarget(
+    const std::string& fn_name, nb::object fn, const std::string& platform,
+    int api_version, XLA_FFI_Handler_Traits traits, nb::dict type_ids) {
   // Register legacy custom call target (untyped void* API).
   if (api_version == 0) {
     if (traits != 0) {
@@ -331,6 +329,29 @@ absl::Status PyRegisterCustomCallTarget(const std::string& fn_name,
 
   // Register XLA FFI handler (typed API with explicit function signatures).
   if (api_version == 1) {
+    for (auto [type_name_py, type_id] : type_ids) {
+      std::string type_name;
+      if (!nb::try_cast<std::string>(type_name_py, type_name)) {
+        nb::bytes bytes = nb::cast<nb::bytes>(type_name_py);
+        type_name = std::string(bytes.c_str(), bytes.size());
+      }
+
+      nb::capsule capsule;
+      if (!nb::try_cast<nb::capsule>(type_id, capsule)) {
+        return absl::InvalidArgumentError(
+            "All type ids must be PyCapsule objects holding a pointer to an "
+            "XLA_FFI_TypeId");
+      }
+
+      auto status = ffi::TakeStatus(
+          ffi::Ffi::RegisterTypeId(xla::ffi::GetXlaFfiApi(), type_name,
+                                   reinterpret_cast<XLA_FFI_TypeId*>(
+                                       static_cast<void*>(capsule.data()))));
+      if (!status.ok()) {
+        return status;
+      }
+    }
+
     nb::capsule capsule;
     if (nb::try_cast<nb::capsule>(fn, capsule)) {
       return ffi::TakeStatus(ffi::Ffi::RegisterStaticHandler(
@@ -1026,17 +1047,26 @@ void BuildXlaCompilerSubmodule(nb::module_& m) {
   m.def(
       "register_custom_call_target",
       [](nb::object fn_name_py, nb::object fn, const std::string& platform,
-         int api_version, XLA_FFI_Handler_Traits traits) {
+         int api_version, XLA_FFI_Handler_Traits traits,
+         nb::object type_ids_py) {
         std::string fn_name;
         if (!nb::try_cast<std::string>(fn_name_py, fn_name)) {
           nb::bytes bytes = nb::cast<nb::bytes>(fn_name_py);
           fn_name = std::string(bytes.c_str(), bytes.size());
         }
+        nb::dict type_ids;
+        if (!type_ids_py.is_none() &&
+            !nb::try_cast<nb::dict>(type_ids_py, type_ids)) {
+          throw XlaRuntimeError(
+              "The 'type_ids' argument to 'register_custom_call_target' must "
+              "be a dictionary");
+        }
         xla::ThrowIfError(PyRegisterCustomCallTarget(
-            fn_name, std::move(fn), platform, api_version, traits));
+            fn_name, std::move(fn), platform, api_version, traits, type_ids));
       },
       nb::arg("fn_name"), nb::arg("fn"), nb::arg("platform"),
-      nb::arg("api_version") = 0, nb::arg("traits") = 0);
+      nb::arg("api_version") = 0, nb::arg("traits") = 0,
+      nb::arg("custom_type_ids") = nb::none());
 
   m.def(
       "custom_call_targets",
