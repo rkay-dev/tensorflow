@@ -1,4 +1,4 @@
-// RUN: xla-translate -hlo-text-to-mlir-hlo -with-layouts -print-layouts -hlo-import-all-computations -split-input-file -verify-diagnostics %s -o - | FileCheck %s
+// RUN: xla-translate -hlo-text-to-mlir-hlo -with-layouts -print-layouts -split-input-file -verify-diagnostics %s -o - | FileCheck %s
 
 HloModule entry, entry_computation_layout={(
   f32[2,3,4]{0,1,2:T(2,128)},
