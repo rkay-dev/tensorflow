@@ -1101,7 +1101,9 @@ absl::Status CheckGpuDelegateCompatibility(const OpSignature& op_sig,
     case kTfLiteBuiltinMinimum:
     case kTfLiteBuiltinNotEqual:
     case kTfLiteBuiltinPow:
+    case kTfLiteBuiltinRightShift:
     case kTfLiteBuiltinStablehloRemainder:
+    case kTfLiteBuiltinStablehloShiftLeft:
     case kTfLiteBuiltinSquaredDifference:
     case kTfLiteBuiltinSub: {
       if (!CheckInputsConstsOutputs(op_sig, /*required_runtime_inputs=*/2,
