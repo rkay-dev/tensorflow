@@ -172,18 +172,20 @@ absl::Status BFloat16ConversionFoldingVisitor::DefaultAction(
   // Do not fold BF16 conversions for instructions related to tuples, entry and
   // exit of a computation, fusion, convert, side-effecting instructions,
   // in-place operations and control flow.
-  if (hlo->opcode() == HloOpcode::kTuple ||                      //
-      hlo->opcode() == HloOpcode::kGetTupleElement ||            //
-      hlo->opcode() == HloOpcode::kConstant ||                   //
-      hlo->opcode() == HloOpcode::kParameter ||                  //
-      hlo->opcode() == HloOpcode::kFusion ||                     //
-      hlo->opcode() == HloOpcode::kBitcastConvert ||             //
-      hlo->opcode() == HloOpcode::kConvert ||                    //
-      hlo->opcode() == HloOpcode::kCall ||                       //
-      hlo->opcode() == HloOpcode::kCustomCall ||                 //
-      hlo->opcode() == HloOpcode::kWhile ||                      //
-      hlo->opcode() == HloOpcode::kConditional ||                //
-      HloDataflowAnalysis::IsInPlaceOperation(hlo->opcode()) ||  //
+  if (hlo->opcode() == HloOpcode::kTuple ||                                //
+      hlo->opcode() == HloOpcode::kGetTupleElement ||                      //
+      hlo->opcode() == HloOpcode::kConstant ||                             //
+      hlo->opcode() == HloOpcode::kParameter ||                            //
+      hlo->opcode() == HloOpcode::kFusion ||                               //
+      hlo->opcode() == HloOpcode::kBitcastConvert ||                       //
+      hlo->opcode() == HloOpcode::kConvert ||                              //
+      hlo->opcode() == HloOpcode::kCall ||                                 //
+      hlo->opcode() == HloOpcode::kCustomCall ||                           //
+      hlo->opcode() == HloOpcode::kWhile ||                                //
+      hlo->opcode() == HloOpcode::kConditional ||                          //
+      HloDataflowAnalysis::IsInPlaceOperation(hlo->opcode()) ||            //
+      HloDataflowAnalysis::IsAsynchronousOperationStart(hlo->opcode()) ||  //
+      HloDataflowAnalysis::IsAsynchronousOperationDone(hlo->opcode()) ||   //
       hlo->HasSideEffectNoRecurse()) {
     return absl::OkStatus();
   }
