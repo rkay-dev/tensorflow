@@ -804,7 +804,7 @@ xla_test(
         "gpu",
     ],
     local_defines = if_cuda_is_configured(["GOOGLE_CUDA=1"]),
-    tags = ["no_rocm"],
+    tags = ["cuda-only"],
     deps = [
         ":cudnn_fused_mha_rewriter",
         ":cudnn_fused_mha_transpose_fusion",
@@ -1385,8 +1385,8 @@ xla_cc_test(
     name = "dynamic_slice_fusion_rewriter_test",
     srcs = ["dynamic_slice_fusion_rewriter_test.cc"],
     tags = [
+        "cuda-only",
         "gpu",
-        "no_rocm",
     ],
     deps = [
         ":dynamic_slice_fusion_rewriter",
